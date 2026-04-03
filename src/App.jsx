@@ -542,18 +542,58 @@ focused:  {label:"🎯 Focused",   desc:"Full schedule. Let's do this!",        
 distract: {label:"🌀 Distracted",desc:"Half schedule + visual content. Keep it engaging.", color:NAVY,      tasks:3,  style:"visual"},
 };
 
-// ─── STORAGE HELPERS ──────────────────────────────────────────────────────────
-var mem = {};
-function sGet(key){ return (async()=>{ try{ var r=await window.storage.get(key); if(r&&r.value!=null)return JSON.parse(r.value); }catch(e){} return mem[key]!==undefined?mem[key]:null; })(); }
-function sSet(key,val){ mem[key]=val; (async()=>{ try{ await window.storage.set(key,JSON.stringify(val)); }catch(e){} })(); }
+// ─── SUPABASE CLIENT ──────────────────────────────────────────────────────────
+var SUPABASE_URL = typeof import.meta !== 'undefined' && import.meta.env ? import.meta.env.VITE_SUPABASE_URL : '';
+var SUPABASE_KEY = typeof import.meta !== 'undefined' && import.meta.env ? import.meta.env.VITE_SUPABASE_ANON_KEY : '';
 
-function usePersist(pin,suffix,init){
-  var key=pin?("pa_"+pin+"_"+suffix):null;
-  var st=useState(init); var val=st[0]; var setVal=st[1];
-  var rdy=useState(false); var ready=rdy[0]; var setReady=rdy[1];
-  useEffect(function(){ if(!key){setReady(true);return;} sGet(key).then(function(s){ if(s!==null)setVal(s); setReady(true); }); },[key]);
-  function save(v){ setVal(v); if(key)sSet(key,v); }
-  return [val,save,ready];
+function sbFetch(path, opts){
+  return fetch(SUPABASE_URL + path, Object.assign({
+    headers: {
+      'apikey': SUPABASE_KEY,
+      'Authorization': 'Bearer ' + (window._sbToken || SUPABASE_KEY),
+      'Content-Type': 'application/json',
+      'Prefer': 'return=representation',
+    }
+  }, opts));
+}
+
+// ─── PERSISTENCE HELPERS ──────────────────────────────────────────────────────
+var mem = {};
+function usePersist(userId, suffix, init){
+  var key = userId ? (userId + "_" + suffix) : null;
+  var st = useState(init); var val = st[0]; var setVal = st[1];
+  var rdy = useState(false); var ready = rdy[0]; var setReady = rdy[1];
+  useEffect(function(){
+    if(!key){ setReady(true); return; }
+    if(mem[key] !== undefined){ setVal(mem[key]); setReady(true); return; }
+    sbFetch('/rest/v1/user_data?user_id=eq.' + userId + '&key=eq.' + suffix + '&select=value', {method:'GET'})
+    .then(function(r){ return r.json(); })
+    .then(function(rows){
+      if(rows && rows.length > 0 && rows[0].value != null){
+        var parsed = JSON.parse(rows[0].value);
+        mem[key] = parsed;
+        setVal(parsed);
+      }
+      setReady(true);
+    })
+    .catch(function(){ setReady(true); });
+  }, [key]);
+  function save(v){
+    setVal(v);
+    mem[key] = v;
+    if(!key) return;
+    sbFetch('/rest/v1/user_data', {
+      method: 'POST',
+      body: JSON.stringify({user_id: userId, key: suffix, value: JSON.stringify(v)}),
+      headers: {
+        'apikey': SUPABASE_KEY,
+        'Authorization': 'Bearer ' + (window._sbToken || SUPABASE_KEY),
+        'Content-Type': 'application/json',
+        'Prefer': 'resolution=merge-duplicates,return=representation',
+      }
+    }).catch(function(){});
+  }
+  return [val, save, ready];
 }
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
@@ -593,81 +633,90 @@ function buildAILesson(topicTitle,secLabel,cb,onErr){
   }).catch(function(){ cb(null); onErr&&onErr(); });
 }
 
-// ─── PIN SCREEN ───────────────────────────────────────────────────────────────
-function PinScreen(props){
-  var onLogin=props.onLogin;
-  var ms=useState("enter"); var mode=ms[0]; var setMode=ms[1];
-  var ps=useState(""); var pin=ps[0]; var setPin=ps[1];
-  var cs=useState(""); var conf=cs[0]; var setConf=cs[1];
-  var ns=useState(""); var name=ns[0]; var setName=ns[1];
-  var sks=useState(false); var shake=sks[0]; var setShake=sks[1];
-  var us=useState(null); var users=us[0]; var setUsers=us[1];
-  useEffect(function(){ sGet("pa_users").then(function(u){setUsers(u||{});}); },[]);
-  var active=mode==="confirm"?conf:pin;
-  var digits=["1","2","3","4","5","6","7","8","9","","0","DEL"];
-  function press(d){
-    if(d==="DEL"){
-      if(mode==="confirm")setConf(function(c){return c.slice(0,-1);}); else setPin(function(p){return p.slice(0,-1);});
-      return;
+// ─── LOGIN SCREEN ────────────────────────────────────────────────────────────
+var ALLOWED_EMAIL = (typeof import.meta !== 'undefined' && import.meta.env) ? import.meta.env.VITE_ALLOWED_EMAIL : '';
+
+function LoginScreen(props){
+  var onLogin = props.onLogin;
+  var modeState = useState('login'); var mode = modeState[0]; var setMode = modeState[1];
+  var emailState = useState(''); var email = emailState[0]; var setEmail = emailState[1];
+  var passState = useState(''); var pass = passState[0]; var setPass = passState[1];
+  var errState = useState(''); var err = errState[0]; var setErr = errState[1];
+  var loadState = useState(false); var load = loadState[0]; var setLoad = loadState[1];
+
+  function submit(){
+    if(!email.trim() || !pass.trim()){ setErr('Please fill in all fields.'); return; }
+    if(ALLOWED_EMAIL && email.toLowerCase() !== ALLOWED_EMAIL.toLowerCase()){
+      setErr('This app is private. Access denied.'); return;
     }
-    if(mode==="confirm"){if(conf.length<4)setConf(function(c){return c+d;});}
-    else{if(pin.length<4)setPin(function(p){return p+d;});}
-  }
-  useEffect(function(){
-    if(mode==="enter"&&pin.length===4&&users!==null){
-      if(users[pin]){onLogin(pin,users[pin].name);}
-      else{setMode("create");}
-    }
-  },[pin,users]);
-  useEffect(function(){
-    if(mode==="confirm"&&conf.length===4){
-      if(conf!==pin){
-        setShake(true);
-        setTimeout(function(){setShake(false);setConf("");setPin("");setMode("enter");},900);
-      } else {
-        var next=Object.assign({},users);
-        next[pin]={name:name.trim(),createdAt:Date.now()};
-        sSet("pa_users",next);
-        onLogin(pin,name.trim());
+    setLoad(true); setErr('');
+    var endpoint = mode === 'login' ? '/auth/v1/token?grant_type=password' : '/auth/v1/signup';
+    sbFetch(endpoint, {
+      method: 'POST',
+      body: JSON.stringify({email: email.trim(), password: pass}),
+    })
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      setLoad(false);
+      if(d.error || d.error_description || d.msg){
+        setErr(d.error_description || d.msg || d.error || 'Something went wrong.');
+        return;
       }
-    }
-  },[conf]);
-  var titles={enter:"Welcome back",create:"Create your account",confirm:"Confirm your PIN"};
-  var subs={enter:"Enter your PIN to continue",create:"Choose a name for your profile",confirm:"Re-enter your PIN to confirm"};
-  return (
-    <div style={{...T.app,alignItems:"center",justifyContent:"center",padding:"20px 16px",background:BG}}>
+      if(d.access_token){
+        window._sbToken = d.access_token;
+        var name = d.user && d.user.email ? d.user.email.split('@')[0] : 'there';
+        name = name.charAt(0).toUpperCase() + name.slice(1);
+        onLogin(d.user.id, name);
+      } else if(mode === 'signup' && d.user){
+        setMode('login');
+        setErr('Account created! Please log in now.');
+      } else {
+        setErr('Login failed. Please check your credentials.');
+      }
+    })
+    .catch(function(){ setLoad(false); setErr('Connection error. Please try again.'); });
+  }
+
+  return(
+    <div style={{...T.app, alignItems:'center', justifyContent:'center', padding:'20px 16px'}}>
       <style>{CSS}</style>
-      <div style={{width:"100%",maxWidth:320,animation:"pop .3s ease"}}>
-        <div style={{textAlign:"center",marginBottom:28}}>
-          <div style={{fontSize:42,marginBottom:10}}>📚</div>
-          <div style={{fontWeight:"700",fontSize:20,letterSpacing:"0.04em",color:TEXT}}>ProcrastinAid</div>
-          <div style={{fontSize:12,color:MUTED,marginTop:4,fontStyle:"italic"}}>Your forgiving MCAT study companion</div>
+      <div style={{width:'100%', maxWidth:360, animation:'pop .3s ease'}}>
+        <div style={{textAlign:'center', marginBottom:28}}>
+          <div style={{fontSize:42, marginBottom:10}}>📚</div>
+          <div style={{fontWeight:'700', fontSize:20, letterSpacing:'0.04em', color:TEXT}}>ProcrastinAid</div>
+          <div style={{fontSize:12, color:MUTED, marginTop:4, fontStyle:'italic'}}>Your forgiving MCAT study companion</div>
         </div>
-        <div style={{...T.card,textAlign:"center",animation:shake?"shake .4s ease":"none"}}>
-          <div style={{fontSize:15,fontWeight:"700",marginBottom:4,color:TEXT}}>{titles[mode]}</div>
-          <div style={{fontSize:12,color:MUTED,marginBottom:20}}>{subs[mode]}</div>
-          {mode==="create"&&(
-            <div style={{marginBottom:16}}>
-              <input style={{...T.inp,textAlign:"center",fontSize:15,marginBottom:10}} placeholder="Your first name" value={name} onChange={function(e){setName(e.target.value);}} onKeyDown={function(e){if(e.key==="Enter"&&name.trim())setMode("confirm");}} autoFocus/>
-              <button style={{...T.btn(GREEN,CREAM),width:"100%",justifyContent:"center"}} onClick={function(){if(name.trim())setMode("confirm");}} disabled={!name.trim()}>Continue</button>
-            </div>
-          )}
-          {mode!=="create"&&(
-            <div>
-              <div style={{display:"flex",gap:14,justifyContent:"center",marginBottom:22}}>
-                {[0,1,2,3].map(function(i){return <div key={i} style={{width:14,height:14,borderRadius:"50%",background:active.length>i?GREEN:FAINT,border:"2px solid "+(active.length>i?GREEN:BORDER),transition:"all .15s"}}/>;} )}
-              </div>
-              <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,maxWidth:220,margin:"0 auto"}}>
-                {digits.map(function(d,i){
-                  return <button key={i} onClick={function(){if(d)press(d);}}
-                    style={{padding:"12px 0",borderRadius:9,border:"1px solid "+BORDER,background:d?SURF:"transparent",color:d==="DEL"?MUTED:TEXT,fontSize:d==="DEL"?13:18,fontWeight:"700",cursor:d?"pointer":"default",fontFamily:"inherit",opacity:d?1:0}}>{d==="DEL"?"⌫":d}</button>;
-                })}
-              </div>
-            </div>
-          )}
+        <div style={T.card}>
+          <div style={{fontSize:15, fontWeight:'700', marginBottom:16, color:TEXT, textAlign:'center'}}>
+            {mode === 'login' ? 'Welcome back' : 'Create your account'}
+          </div>
+          <div style={{marginBottom:12}}>
+            <label style={T.lbl}>Email</label>
+            <input style={T.inp} type="email" placeholder="your@email.com" value={email}
+              onChange={function(e){setEmail(e.target.value);}}
+              onKeyDown={function(e){if(e.key==='Enter')submit();}}
+              autoFocus/>
+          </div>
+          <div style={{marginBottom:16}}>
+            <label style={T.lbl}>Password</label>
+            <input style={T.inp} type="password" placeholder="••••••••" value={pass}
+              onChange={function(e){setPass(e.target.value);}}
+              onKeyDown={function(e){if(e.key==='Enter')submit();}}/>
+          </div>
+          {err && <div style={{fontSize:12, color:err.includes('created')?GREEN:RED, marginBottom:12, textAlign:'center'}}>{err}</div>}
+          <button style={{...T.btn(GREEN,CREAM), width:'100%', justifyContent:'center'}}
+            onClick={submit} disabled={load}>
+            {load ? 'Please wait...' : mode === 'login' ? 'Log In' : 'Create Account'}
+          </button>
+          <div style={{textAlign:'center', marginTop:12, fontSize:12, color:MUTED}}>
+            {mode === 'login'
+              ? <span>No account? <span style={{color:GREEN, cursor:'pointer', fontWeight:'700'}} onClick={function(){setMode('signup');setErr('');}}>Sign up</span></span>
+              : <span>Have an account? <span style={{color:GREEN, cursor:'pointer', fontWeight:'700'}} onClick={function(){setMode('login');setErr('');}}>Log in</span></span>
+            }
+          </div>
         </div>
-        <div style={{textAlign:"center",marginTop:12,fontSize:11,color:MUTED}}>
-          {mode==="enter"?"New here? Enter any 4-digit PIN to create your account.":"Remember this PIN — you will need it every time you sign in."}
+        <div style={{textAlign:'center', marginTop:12, fontSize:11, color:MUTED}}>
+          Private app — authorized users only
         </div>
       </div>
     </div>
@@ -1574,21 +1623,21 @@ function Assessment(props){
 
 // ─── ROOT APP ─────────────────────────────────────────────────────────────────
 export default function App(){
-  var pinState=useState(null); var pin=pinState[0]; var setPin=pinState[1];
+  var userIdState=useState(null); var userId=userIdState[0]; var setUserId=userIdState[1];
   var userNameState=useState(""); var userName=userNameState[0]; var setUserName=userNameState[1];
-  var setupArr=usePersist(pin,"setup_v1",null);
-  var tabArr=usePersist(pin,"tab_v1","dashboard");
-  var sessArr=usePersist(pin,"sessions_v1",[]);
-  var msgsArr=usePersist(pin,"msgs_v1",[]);
-  var topicsArr=usePersist(pin,"completed_v1",[]);
+  var setupArr=usePersist(userId,"setup_v1",null);
+  var tabArr=usePersist(userId,"tab_v1","dashboard");
+  var sessArr=usePersist(userId,"sessions_v1",[]);
+  var msgsArr=usePersist(userId,"msgs_v1",[]);
+  var topicsArr=usePersist(userId,"completed_v1",[]);
   var setup=setupArr[0];      var setSetup=setupArr[1];      var setupReady=setupArr[2];
   var tab=tabArr[0];          var setTab=tabArr[1];
   var sessions=sessArr[0];    var setSessions=sessArr[1];
   var msgs=msgsArr[0];        var setMsgs=msgsArr[1];
   var completedTopics=topicsArr[0]; var setCompletedTopics=topicsArr[1]; var topicsReady=topicsArr[2];
-  var dataReady=!pin||(setupReady&&topicsReady);
-  function login(p,n){setPin(p);setUserName(n);}
-  function logout(){setPin(null);setUserName("");}
+  var dataReady=!userId||(setupReady&&topicsReady);
+  function login(id,n){setUserId(id);setUserName(n);}
+  function logout(){setUserId(null);setUserName("");window._sbToken=null;}
   function reset(){setSetup(null);setCompletedTopics([]);setSessions([]);setMsgs([]);setTab("dashboard");}
   function onTopicComplete(id){
     setCompletedTopics(function(prev){return prev.indexOf(id)>=0?prev:prev.concat([id]);});
@@ -1610,7 +1659,7 @@ export default function App(){
       <div style={{color:MUTED,fontSize:13,fontStyle:"italic"}}>Loading your progress...</div>
     </div>
   );
-  if(!pin)return <div><style>{globalStyle}</style><PinScreen onLogin={login}/></div>;
+  if(!userId)return <div><style>{globalStyle}</style><LoginScreen onLogin={login}/></div>;
   if(!setup)return(
     <div style={T.app}>
       <style>{globalStyle}</style>
@@ -1635,7 +1684,7 @@ export default function App(){
         <div style={T.tabs}>
           {TABS.map(function(t){return <button key={t.id} style={T.tab(tab===t.id)} onClick={function(){setTab(t.id);}}>{t.ic} {t.l}</button>;})}
         </div>
-        <button style={{...T.bsm(),flexShrink:0,marginLeft:4}} onClick={logout}>Exit</button>
+        <button style={{...T.bsm(),flexShrink:0,marginLeft:4}} onClick={logout}>Log Out</button>
       </div>
       <div style={{flex:1,overflowY:"auto"}}>{pages[tab]||pages.dashboard}</div>
     </div>
