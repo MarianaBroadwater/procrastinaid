@@ -630,12 +630,23 @@ function Spinner(props){
 
 // ─── AI HELPER ────────────────────────────────────────────────────────────────
 function callAI(messages,system,max){
+  var controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  var timeout = controller ? setTimeout(function(){ controller.abort(); }, 30000) : null;
   return fetch("/api/claude",{
-    method:"POST",headers:{"Content-Type":"application/json"},
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
     body:JSON.stringify({model:MODEL,max_tokens:max||1000,system:system,messages:messages}),
-  }).then(function(r){return r.json();}).then(function(d){
-    if(d.error)throw new Error(d.error.message);
+    signal: controller ? controller.signal : undefined,
+  }).then(function(r){
+    if(timeout) clearTimeout(timeout);
+    if(!r.ok) throw new Error("API error: " + r.status);
+    return r.json();
+  }).then(function(d){
+    if(d.error) throw new Error(d.error.message||"API error");
     return d.content?d.content.map(function(b){return b.text||"";}).join(""):"";
+  }).catch(function(e){
+    if(timeout) clearTimeout(timeout);
+    throw e;
   });
 }
 
@@ -1322,8 +1333,38 @@ function LessonsTab(props){
     if(prebuilt){setLessonData(prebuilt);return;}
     setLoading(true);
     buildAILesson(topic.title,sec.label,function(d){
-      if(d)setLessonData(d);
-      else setLessonData({overview:"Lesson for "+topic.title+" in "+sec.label+".",keyPoints:["This is a high-yield MCAT topic.","Focus on mechanism and clinical application.","Practice with passage-based questions.","Use the Tutor for deeper explanations.","Build flashcards on this topic."],deepDive:"Go to the AI Tutor and ask: Teach me about "+topic.title+". You will get a full interactive explanation.",clinicalRelevance:"Ask the Tutor: How is "+topic.title+" tested on the MCAT?",memorize:["Core definition of "+topic.title,"Key steps or components","Clinical connection for the MCAT"]});
+      var fallback = {
+        overview: topic.title + " is a high-yield MCAT topic in " + sec.label + ". Use the AI Tutor tab for a full interactive lesson on this topic.",
+        keyPoints: [
+          "This topic is covered in the AAMC content outline for " + sec.short,
+          "Focus on understanding the mechanism, not just memorizing facts",
+          "Practice with passage-based questions after reviewing",
+          "Ask the AI Tutor: Teach me about " + topic.title,
+          "Check the flashcard deck for key terms and definitions"
+        ],
+        deepDive: "To get a full lesson on this topic, go to the Study Hub tab and click AI Tutor. Type: Teach me about " + topic.title + " for the MCAT. The tutor will give you a complete breakdown including mechanisms, clinical relevance, and practice tips.
+
+You can also search for " + topic.title + " on Khan Academy MCAT (free) or in your prep books for additional content.",
+        clinicalRelevance: "Ask the AI Tutor: How is " + topic.title + " clinically relevant and how is it tested on the MCAT?",
+        memorize: [
+          "Key definition: ask the AI Tutor for the core concept of " + topic.title,
+          "Main mechanism or process involved",
+          "Clinical or experimental connection to medicine"
+        ]
+      };
+      setLessonData(d || fallback);
+      setLoading(false);
+    }, function(){
+      // onErr callback - also use fallback
+      setLessonData({
+        overview: topic.title + " — AI lesson unavailable right now. Use the AI Tutor tab for an interactive lesson.",
+        keyPoints: ["Go to Study Hub → AI Tutor","Type: Teach me about " + topic.title,"Check Khan Academy MCAT for free video content","Review your prep book section on this topic","Come back and try the AI lesson again later"],
+        deepDive: "The AI lesson generator is temporarily unavailable. This can happen if the Anthropic API key is not set up yet in Vercel, or if there was a network timeout.
+
+To get your API key working: go to console.anthropic.com, create a key, and add it as ANTHROPIC_API_KEY in your Vercel environment variables, then redeploy.",
+        clinicalRelevance: "Use the AI Tutor in Study Hub for personalized explanations of " + topic.title + ".",
+        memorize: ["Set up your ANTHROPIC_API_KEY in Vercel to unlock AI lessons","Go to Study Hub → AI Tutor for interactive help","Khan Academy MCAT has free videos on most topics"]
+      });
       setLoading(false);
     });
   }
