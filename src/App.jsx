@@ -1342,9 +1342,7 @@ function LessonsTab(props){
           "Ask the AI Tutor: Teach me about " + topic.title,
           "Check the flashcard deck for key terms and definitions"
         ],
-        deepDive: "To get a full lesson on this topic, go to the Study Hub tab and click AI Tutor. Type: Teach me about " + topic.title + " for the MCAT. The tutor will give you a complete breakdown including mechanisms, clinical relevance, and practice tips.
-
-You can also search for " + topic.title + " on Khan Academy MCAT (free) or in your prep books for additional content.",
+        deepDive: "To get a full lesson on this topic, go to the Study Hub tab and click AI Tutor. Type: Teach me about " + topic.title + " for the MCAT. The tutor will give you a complete breakdown including mechanisms, clinical relevance, and practice tips. You can also search for " + topic.title + " on Khan Academy MCAT (free) or in your prep books for additional content.",
         clinicalRelevance: "Ask the AI Tutor: How is " + topic.title + " clinically relevant and how is it tested on the MCAT?",
         memorize: [
           "Key definition: ask the AI Tutor for the core concept of " + topic.title,
@@ -1359,9 +1357,7 @@ You can also search for " + topic.title + " on Khan Academy MCAT (free) or in yo
       setLessonData({
         overview: topic.title + " — AI lesson unavailable right now. Use the AI Tutor tab for an interactive lesson.",
         keyPoints: ["Go to Study Hub → AI Tutor","Type: Teach me about " + topic.title,"Check Khan Academy MCAT for free video content","Review your prep book section on this topic","Come back and try the AI lesson again later"],
-        deepDive: "The AI lesson generator is temporarily unavailable. This can happen if the Anthropic API key is not set up yet in Vercel, or if there was a network timeout.
-
-To get your API key working: go to console.anthropic.com, create a key, and add it as ANTHROPIC_API_KEY in your Vercel environment variables, then redeploy.",
+        deepDive: "The AI lesson generator is temporarily unavailable. To fix this: go to console.anthropic.com, create an API key, and add it as ANTHROPIC_API_KEY in your Vercel environment variables, then redeploy.",
         clinicalRelevance: "Use the AI Tutor in Study Hub for personalized explanations of " + topic.title + ".",
         memorize: ["Set up your ANTHROPIC_API_KEY in Vercel to unlock AI lessons","Go to Study Hub → AI Tutor for interactive help","Khan Academy MCAT has free videos on most topics"]
       });
