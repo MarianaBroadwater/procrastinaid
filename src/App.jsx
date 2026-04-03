@@ -651,25 +651,17 @@ function callAI(messages,system,max){
 }
 
 function buildAILesson(topicTitle,secLabel,cb,onErr){
-  callAI([{role:"user",content:"You are an MCAT tutor. Write a lesson on: "+topicTitle+" for: "+secLabel+". Return ONLY a JSON object with these exact keys: overview (string), keyPoints (array of 5 strings), deepDive (string), clinicalRelevance (string), memorize (array of 3 strings). No markdown, no backticks, no extra text."}],
-    "You are an MCAT tutor API. Return ONLY raw JSON. No markdown. No backticks. No explanation. Start with { and end with }.",1200)
+  var msg="Write an MCAT lesson on "+topicTitle+" for "+secLabel+". Return ONLY a JSON object with keys: overview, keyPoints (array of 5 strings), deepDive, clinicalRelevance, memorize (array of 3 strings). No markdown.";
+  callAI([{role:"user",content:msg}],"Return ONLY raw JSON. No markdown. No backticks.",1200)
   .then(function(raw){
     if(!raw||!raw.trim()){cb(null);onErr&&onErr();return;}
-    // Try multiple parsing strategies
     var parsed=null;
-    // Strategy 1: direct parse
-    try{parsed=JSON.parse(raw.trim());} catch(e){}
-    // Strategy 2: extract JSON object
-    if(!parsed){try{var m=raw.match(/\{[\s\S]*\}/);if(m)parsed=JSON.parse(m[0]);}catch(e){}}
-    // Strategy 3: extract and clean
-    if(!parsed){try{var m2=raw.match(/\{[\s\S]*\}/);if(m2){var cleaned=m2[0].replace(/[ --]/g,function(c){return c==='
-'||c==='
-'||c==='	'?c:'';});parsed=JSON.parse(cleaned);}}catch(e){}}
+    try{parsed=JSON.parse(raw.trim());}catch(e){}
+    if(!parsed){try{var s=raw.indexOf("{");var e2=raw.lastIndexOf("}");if(s>=0&&e2>s){parsed=JSON.parse(raw.slice(s,e2+1));}}catch(e){}}
     if(parsed&&parsed.overview){cb(parsed);}
-    else{console.log("AI lesson parse failed, raw:",raw.slice(0,200));cb(null);onErr&&onErr();}
-  }).catch(function(e){console.log("AI lesson error:",e);cb(null);onErr&&onErr();});
+    else{cb(null);onErr&&onErr();}
+  }).catch(function(){cb(null);onErr&&onErr();});
 }
-
 // ─── LOGIN SCREEN ────────────────────────────────────────────────────────────
 var ALLOWED_EMAIL = (typeof import.meta !== 'undefined' && import.meta.env) ? import.meta.env.VITE_ALLOWED_EMAIL : '';
 
