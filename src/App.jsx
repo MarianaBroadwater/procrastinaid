@@ -651,13 +651,23 @@ function callAI(messages,system,max){
 }
 
 function buildAILesson(topicTitle,secLabel,cb,onErr){
-  callAI([{role:"user",content:"You are an MCAT tutor. Create a concise lesson on: "+topicTitle+" for MCAT section: "+secLabel+". Return a JSON object (no markdown, no code fences) with keys: overview (2-3 sentences), keyPoints (array of 5 strings), deepDive (2-3 paragraphs), clinicalRelevance (1-2 sentences), memorize (array of 3 strings)."}],
-    "Return only a raw JSON object. No markdown. No backticks.",1000)
+  callAI([{role:"user",content:"You are an MCAT tutor. Write a lesson on: "+topicTitle+" for: "+secLabel+". Return ONLY a JSON object with these exact keys: overview (string), keyPoints (array of 5 strings), deepDive (string), clinicalRelevance (string), memorize (array of 3 strings). No markdown, no backticks, no extra text."}],
+    "You are an MCAT tutor API. Return ONLY raw JSON. No markdown. No backticks. No explanation. Start with { and end with }.",1200)
   .then(function(raw){
-    var m=raw.match(/\{[\s\S]*\}/);
-    if(m){ try{ cb(JSON.parse(m[0])); return; }catch(e){} }
-    cb(null); onErr&&onErr();
-  }).catch(function(){ cb(null); onErr&&onErr(); });
+    if(!raw||!raw.trim()){cb(null);onErr&&onErr();return;}
+    // Try multiple parsing strategies
+    var parsed=null;
+    // Strategy 1: direct parse
+    try{parsed=JSON.parse(raw.trim());} catch(e){}
+    // Strategy 2: extract JSON object
+    if(!parsed){try{var m=raw.match(/\{[\s\S]*\}/);if(m)parsed=JSON.parse(m[0]);}catch(e){}}
+    // Strategy 3: extract and clean
+    if(!parsed){try{var m2=raw.match(/\{[\s\S]*\}/);if(m2){var cleaned=m2[0].replace(/[ --]/g,function(c){return c==='
+'||c==='
+'||c==='	'?c:'';});parsed=JSON.parse(cleaned);}}catch(e){}}
+    if(parsed&&parsed.overview){cb(parsed);}
+    else{console.log("AI lesson parse failed, raw:",raw.slice(0,200));cb(null);onErr&&onErr();}
+  }).catch(function(e){console.log("AI lesson error:",e);cb(null);onErr&&onErr();});
 }
 
 // ─── LOGIN SCREEN ────────────────────────────────────────────────────────────
