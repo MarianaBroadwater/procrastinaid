@@ -566,32 +566,48 @@ function usePersist(userId, suffix, init){
   useEffect(function(){
     if(!key){ setReady(true); return; }
     if(mem[key] !== undefined){ setVal(mem[key]); setReady(true); return; }
-    sbFetch('/rest/v1/user_data?user_id=eq.' + userId + '&key=eq.' + suffix + '&select=value', {method:'GET'})
-    .then(function(r){ return r.json(); })
-    .then(function(rows){
-      if(rows && rows.length > 0 && rows[0].value != null){
-        var parsed = JSON.parse(rows[0].value);
-        mem[key] = parsed;
-        setVal(parsed);
-      }
+    // Try localStorage first as instant fallback
+    try{
+      var local = localStorage.getItem('pa_' + key);
+      if(local){ var parsed = JSON.parse(local); mem[key] = parsed; setVal(parsed); setReady(true); return; }
+    }catch(e){}
+    // Then try Supabase
+    if(window._sbToken){
+      sbFetch('/rest/v1/user_data?user_id=eq.' + userId + '&key=eq.' + suffix + '&select=value', {method:'GET'})
+      .then(function(r){ return r.json(); })
+      .then(function(rows){
+        if(rows && rows.length > 0 && rows[0].value != null){
+          var parsed = JSON.parse(rows[0].value);
+          mem[key] = parsed;
+          setVal(parsed);
+          try{ localStorage.setItem('pa_' + key, JSON.stringify(parsed)); }catch(e){}
+        }
+        setReady(true);
+      })
+      .catch(function(){ setReady(true); });
+    } else {
       setReady(true);
-    })
-    .catch(function(){ setReady(true); });
+    }
   }, [key]);
   function save(v){
     setVal(v);
     mem[key] = v;
+    // Always save to localStorage as backup
+    try{ localStorage.setItem('pa_' + key, JSON.stringify(v)); }catch(e){}
     if(!key) return;
-    sbFetch('/rest/v1/user_data', {
-      method: 'POST',
-      body: JSON.stringify({user_id: userId, key: suffix, value: JSON.stringify(v)}),
-      headers: {
-        'apikey': SUPABASE_KEY,
-        'Authorization': 'Bearer ' + (window._sbToken || SUPABASE_KEY),
-        'Content-Type': 'application/json',
-        'Prefer': 'resolution=merge-duplicates,return=representation',
-      }
-    }).catch(function(){});
+    // Save to Supabase if we have a token
+    if(window._sbToken){
+      sbFetch('/rest/v1/user_data', {
+        method: 'POST',
+        body: JSON.stringify({user_id: userId, key: suffix, value: JSON.stringify(v)}),
+        headers: {
+          'apikey': SUPABASE_KEY,
+          'Authorization': 'Bearer ' + window._sbToken,
+          'Content-Type': 'application/json',
+          'Prefer': 'resolution=merge-duplicates,return=representation',
+        }
+      }).catch(function(e){ console.log('Supabase save failed, using localStorage backup'); });
+    }
   }
   return [val, save, ready];
 }
