@@ -543,18 +543,19 @@ distract: {label:"🌀 Distracted",desc:"Half schedule + visual content. Keep it
 };
 
 // ─── SUPABASE CLIENT ──────────────────────────────────────────────────────────
-var SUPABASE_URL = typeof import.meta !== 'undefined' && import.meta.env ? import.meta.env.VITE_SUPABASE_URL : '';
-var SUPABASE_KEY = typeof import.meta !== 'undefined' && import.meta.env ? import.meta.env.VITE_SUPABASE_ANON_KEY : '';
+var SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || '';
+var SUPABASE_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
 
 function sbFetch(path, opts){
-  return fetch(SUPABASE_URL + path, Object.assign({
-    headers: {
-      'apikey': SUPABASE_KEY,
-      'Authorization': 'Bearer ' + (window._sbToken || SUPABASE_KEY),
-      'Content-Type': 'application/json',
-      'Prefer': 'return=representation',
-    }
-  }, opts));
+  var token = window._sbToken || SUPABASE_KEY;
+  var headers = {
+    'apikey': SUPABASE_KEY,
+    'Authorization': 'Bearer ' + token,
+    'Content-Type': 'application/json',
+    'Prefer': 'return=representation',
+  };
+  var merged = Object.assign({}, opts, {headers: Object.assign({}, headers, opts && opts.headers ? opts.headers : {})});
+  return fetch(SUPABASE_URL + path, merged);
 }
 
 // ─── PERSISTENCE HELPERS ──────────────────────────────────────────────────────
