@@ -543,19 +543,35 @@ distract: {label:"🌀 Distracted",desc:"Half schedule + visual content. Keep it
 };
 
 // ─── SUPABASE CLIENT ──────────────────────────────────────────────────────────
-var SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || '';
-var SUPABASE_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+var _cfg = {url:'', key:'', email:''};
+
+function loadConfig(cb){
+  if(_cfg.url){cb(_cfg);return;}
+  fetch('/api/config')
+  .then(function(r){return r.json();})
+  .then(function(d){
+    _cfg.url = d.supabaseUrl || '';
+    _cfg.key = d.supabaseKey || '';
+    _cfg.email = d.allowedEmail || '';
+    cb(_cfg);
+  })
+  .catch(function(){cb(_cfg);});
+}
 
 function sbFetch(path, opts){
-  var token = window._sbToken || SUPABASE_KEY;
-  var headers = {
-    'apikey': SUPABASE_KEY,
-    'Authorization': 'Bearer ' + token,
-    'Content-Type': 'application/json',
-    'Prefer': 'return=representation',
-  };
-  var merged = Object.assign({}, opts, {headers: Object.assign({}, headers, opts && opts.headers ? opts.headers : {})});
-  return fetch(SUPABASE_URL + path, merged);
+  return new Promise(function(resolve, reject){
+    loadConfig(function(cfg){
+      var token = window._sbToken || cfg.key;
+      var headers = {
+        'apikey': cfg.key,
+        'Authorization': 'Bearer ' + token,
+        'Content-Type': 'application/json',
+        'Prefer': 'return=representation',
+      };
+      var merged = Object.assign({}, opts, {headers: Object.assign({}, headers, opts && opts.headers ? opts.headers : {})});
+      fetch(cfg.url + path, merged).then(resolve).catch(reject);
+    });
+  });
 }
 
 // ─── PERSISTENCE HELPERS ──────────────────────────────────────────────────────
@@ -664,7 +680,7 @@ function buildAILesson(topicTitle,secLabel,cb,onErr){
   }).catch(function(){cb(null);onErr&&onErr();});
 }
 // ─── LOGIN SCREEN ────────────────────────────────────────────────────────────
-var ALLOWED_EMAIL = (typeof import.meta !== 'undefined' && import.meta.env) ? import.meta.env.VITE_ALLOWED_EMAIL : '';
+
 
 function LoginScreen(props){
   var onLogin = props.onLogin;
@@ -676,15 +692,18 @@ function LoginScreen(props){
 
   function submit(){
     if(!email.trim() || !pass.trim()){ setErr('Please fill in all fields.'); return; }
-    if(ALLOWED_EMAIL && email.toLowerCase() !== ALLOWED_EMAIL.toLowerCase()){
-      setErr('This app is private. Access denied.'); return;
-    }
     setLoad(true); setErr('');
-    var endpoint = mode === 'login' ? '/auth/v1/token?grant_type=password' : '/auth/v1/signup';
-    sbFetch(endpoint, {
-      method: 'POST',
-      body: JSON.stringify({email: email.trim(), password: pass}),
-    })
+    loadConfig(function(cfg){
+      if(cfg.email && email.toLowerCase() !== cfg.email.toLowerCase()){
+        setLoad(false);
+        setErr('This app is private. Access denied.');
+        return;
+      }
+      var endpoint = mode === 'login' ? '/auth/v1/token?grant_type=password' : '/auth/v1/signup';
+      sbFetch(endpoint, {
+        method: 'POST',
+        body: JSON.stringify({email: email.trim(), password: pass}),
+      })
     .then(function(r){ return r.json(); })
     .then(function(d){
       setLoad(false);
@@ -705,6 +724,7 @@ function LoginScreen(props){
       }
     })
     .catch(function(){ setLoad(false); setErr('Connection error. Please try again.'); });
+    }); // end loadConfig
   }
 
   return(
